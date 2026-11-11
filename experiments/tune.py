@@ -9,6 +9,7 @@ notebook's MODEL SETTINGS cell, and the notebook's experiment log is filled in.
 Usage (from the project folder):
     python experiments/tune.py            full search
     python experiments/tune.py --quick    tiny search, only to check that everything runs
+    python experiments/tune.py --round2   second search, extending the ranges where the first search's best values sat at the edge
     python experiments/tune.py --readme   refresh the results table in README.md
 """
 import argparse
@@ -52,7 +53,7 @@ def update_readme():
     print("README results table updated")
 
 
-def main(quick):
+def main(quick, round2=False):
     t_start = time.time()
     nb = json.load(open(NB, encoding="utf-8"))
     code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
@@ -100,7 +101,12 @@ def main(quick):
             return m.predict(Xva), m.get_best_iteration()
         raise ValueError(kind)
 
+    # keep earlier rounds' results in the same file
     rows = []
+    if round2 and os.path.exists(OUT):
+        prev = pd.read_csv(OUT)
+        prev["round"] = prev["round"].fillna(1).astype(int) if "round" in prev else 1
+        rows = prev.to_dict("records")
 
     def evaluate(stage, kind, settings, drop=()):
         feats = [f for f in all_feats if f not in drop]
@@ -114,7 +120,7 @@ def main(quick):
             n += len(err)
             iters.append(it)
         both = float(np.sqrt(sse / n))
-        row = {"stage": stage, "model": kind, "settings": json.dumps(settings, sort_keys=True),
+        row = {"round": 2 if round2 else 1, "stage": stage, "model": kind, "settings": json.dumps(settings, sort_keys=True),
                "dropped_features": ",".join(drop),
                **{f"rmse_{y}": round(v, 4) for y, v in per.items()},
                "rmse_both": round(both, 4), "iterations": "/".join(str(i) for i in iters),
@@ -132,6 +138,9 @@ def main(quick):
     base = dict(learning_rate=0.03, reg_lambda=1.0)
     if quick:
         grid = [(127, 50, 0.7), (31, 200, 0.7)]
+    elif round2:
+        grid = [(nl, mc, cs) for nl in (63, 127, 255) for mc in (500, 1000, 2000) for cs in (0.3, 0.5)]
+        base = dict(learning_rate=0.03, reg_lambda=current_l2.get("reg_lambda", 20.0))
     else:
         grid = [(nl, mc, cs) for nl in (15, 31, 63, 127) for mc in (50, 200, 500) for cs in (0.5, 0.8)]
     cur_score, cur_per = evaluate("current", "l2", current_l2, current_drop)
@@ -145,7 +154,7 @@ def main(quick):
             best_l2, best_score = s, score
 
     # ---- 2. regularisation on the best tree settings ----
-    for lam in ([] if quick else (0.0, 5.0, 20.0)):
+    for lam in ([] if quick else ((20.0, 50.0, 100.0, 200.0) if round2 else (0.0, 5.0, 20.0))):
         s = dict(best_l2, reg_lambda=lam)
         score, _ = evaluate("l2-reg", "l2", s, current_drop)
         if score < best_score:
@@ -164,7 +173,7 @@ def main(quick):
 
     # ---- 4. Tweedie power, using the best tree settings ----
     best_tw, best_tw_score = None, np.inf
-    for power in ((1.3,) if quick else (1.1, 1.2, 1.3, 1.4, 1.5)):
+    for power in ((1.3,) if quick else ((1.02, 1.05, 1.1, 1.2) if round2 else (1.1, 1.2, 1.3, 1.4, 1.5))):
         s = dict(best_l2, tweedie_variance_power=power)
         score, _ = evaluate("tweedie", "tweedie", s, best_drop)
         if score < best_tw_score:
@@ -172,9 +181,11 @@ def main(quick):
 
     # ---- 5. CatBoost depth and L2 regularisation ----
     best_cat, best_cat_score = dict(g["CAT_PARAMS"]), np.inf
+    if HAS_CB and round2 and not quick:
+        best_cat_score, _ = evaluate("current", "cat", best_cat, best_drop)
     if HAS_CB and not quick:
-        for depth in (6, 8, 10):
-            for l2r in (3.0, 10.0):
+        for depth in ((10, 12) if round2 else (6, 8, 10)):
+            for l2r in ((1.0, 3.0, 10.0) if round2 else (3.0, 10.0)):
                 s = dict(depth=depth, l2_leaf_reg=l2r)
                 score, _ = evaluate("catboost", "cat", s, best_drop)
                 if score < best_cat_score:
@@ -197,9 +208,10 @@ def main(quick):
            f"`experiments/tune.py` tried **{len(df)} configurations** on both validation years "
            "(full list in `experiments/experiments.csv`). RMSE of single models, before blending:", "",
            "| model | settings | 2022 | 2023 | both |", "|---|---|---|---|---|"]
+    df["dropped_features"] = df["dropped_features"].fillna("")
     picks = [("LightGBM before tuning", df.iloc[0])]
     for label, kind in [("LightGBM after tuning", "l2"), ("Tweedie (best power)", "tweedie"), ("CatBoost (best)", "cat")]:
-        sub = df[df.model == kind]
+        sub = df[(df.model == kind) & (df.dropped_features.fillna("") == ",".join(best_drop))]
         if len(sub):
             picks.append((label, sub.loc[sub.rmse_both.idxmin()]))
     for label, r in picks:
@@ -232,8 +244,9 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--readme", action="store_true")
+    ap.add_argument("--round2", action="store_true")
     a = ap.parse_args()
     if a.readme:
         update_readme()
     else:
-        main(a.quick)
+        main(a.quick, a.round2)

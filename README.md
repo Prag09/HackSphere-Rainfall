@@ -55,14 +55,14 @@ Validation RMSE in mm (lower is better). Each year is predicted by models traine
 | Model | 2022 | 2023 | Both years |
 |---|---|---|---|
 | baseline: tomorrow = today | 11.623 | 11.309 | 11.466 |
-| l2 | 9.439 | 8.901 | 9.172 |
-| tweedie | 9.510 | 8.908 | 9.212 |
-| cat | 9.497 | 8.902 | 9.202 |
-| twostage | 9.744 | 8.985 | 9.370 |
-| blend | 9.435 | 8.867 | 9.154 |
-| **final (submitted blend)** | **9.434** | **8.865** | **9.152** |
+| l2 | 9.402 | 8.907 | 9.156 |
+| tweedie | 9.475 | 8.895 | 9.188 |
+| cat | 9.509 | 8.892 | 9.203 |
+| twostage | 9.708 | 8.985 | 9.351 |
+| blend | 9.408 | 8.871 | 9.142 |
+| **final (submitted blend)** | **9.406** | **8.867** | **9.139** |
 
-Model settings were chosen from 44 configurations tried on both validation years (`experiments/tune.py`, results in `experiments/experiments.csv`).
+Model settings were chosen from 82 configurations tried on both validation years (`experiments/tune.py`, results in `experiments/experiments.csv`).
 
 ## How to run
 
