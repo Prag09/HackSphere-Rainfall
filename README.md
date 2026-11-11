@@ -11,6 +11,8 @@ Only the dataset provided by the organisers is used.
 | `rainfall_prediction.ipynb` | Full pipeline: EDA, features, validation, blending, error analysis, final predictions |
 | `submission.csv` | Predictions for every row of `test.csv` (`id, rainfall_next_day_mm`) |
 | `validation_results.csv` | RMSE of each model on the 2022 and 2023 validation years |
+| `experiments/tune.py` | Searches model settings on both validation years and writes the best ones into the notebook |
+| `experiments/experiments.csv` | Every configuration tried, with its validation RMSE |
 | `requirements.txt` | Python packages |
 
 The data files are not in the repo. Put `train.csv`, `test.csv` and `sample_submission.csv` in a `data/` folder to run the notebook.
@@ -39,20 +41,34 @@ The data files are not in the repo. Put `train.csv`, `test.csv` and `sample_subm
 - Two-stage model: probability of rain x expected amount on wet days
 
 Blend weights are fitted with non-negative least squares on the validation predictions, followed by one overall scale factor.
+Model settings (tree size, leaf size, column sampling, regularisation, Tweedie power, CatBoost depth) and feature groups to drop are chosen by `experiments/tune.py`.
 
 **Validation**
 Two folds: train on everything before 2022 and predict 2022, then train on everything before 2023 and predict 2023.
 Validation rows are thinned to every second day per station, the same way test is sampled.
-Any change is kept only if it improves RMSE in both years.
+A change is kept only if it lowers RMSE pooled over both years.
 
 ## Results
 
-See `validation_results.csv` and section 7 of the notebook.
+Validation RMSE in mm (lower is better). Each year is predicted by models trained only on earlier years.
+
+| Model | 2022 | 2023 | Both years |
+|---|---|---|---|
+| baseline: tomorrow = today | 11.623 | 11.309 | 11.466 |
+| l2 | 9.439 | 8.901 | 9.172 |
+| tweedie | 9.510 | 8.908 | 9.212 |
+| cat | 9.497 | 8.902 | 9.202 |
+| twostage | 9.744 | 8.985 | 9.370 |
+| blend | 9.435 | 8.867 | 9.154 |
+| **final (submitted blend)** | **9.434** | **8.865** | **9.152** |
+
+Model settings were chosen from 44 configurations tried on both validation years (`experiments/tune.py`, results in `experiments/experiments.csv`).
 
 ## How to run
 
 ```
 pip install -r requirements.txt
+python experiments/tune.py        # optional: re-run the settings search (20-60 min)
 jupyter notebook rainfall_prediction.ipynb
 ```
-Run all cells. A full run takes roughly 30-90 minutes on a laptop CPU and writes `submission.csv`.
+Run all cells. A full notebook run takes roughly 10-30 minutes on a laptop CPU and writes `submission.csv`.
